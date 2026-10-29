@@ -1,0 +1,364 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="OskKeyboard" extends="Group">
+  <interface>
+    <field id="text" type="string" value="" onChange="onTextSet" />
+    <field id="hint" type="string" value="" onChange="refreshText" />
+    <field id="secret" type="boolean" value="false" onChange="refreshText" />
+    <field id="okLabel" type="string" value="OK" onChange="refreshLabels" />
+    <field id="submit" type="boolean" value="false" alwaysNotify="true" />
+  </interface>
+  <children>
+    <Rectangle id="box" width="836" height="84" color="0x000000CC" />
+    <Label id="txt" translation="[24,0]" width="790" height="84" vertAlign="center" font="font:MediumSystemFont" color="0xFFFFFFFF" />
+    <Group id="keys" translation="[0,104]" />
+    <Group id="pop" visible="false" />
+    <Timer id="holdTimer" duration="0.5" repeat="false" />
+  </children>
+  <script type="text/brightscript"><![CDATA[
+    sub init()
+      m.txt = m.top.findNode("txt")
+      m.keysGrp = m.top.findNode("keys")
+      m.pop = m.top.findNode("pop")
+      m.timer = m.top.findNode("holdTimer")
+      m.timer.observeField("fire", "onHold")
+      m.text = ""
+      m.shift = false
+      m.page = "abc"
+      m.okDown = false
+      m.popOpen = false
+      m.fr = 1
+      m.fc = 0
+      m.acc = { a: ["á","à","â","ã","ä"], e: ["é","è","ê","ë"], i: ["í","ì","î","ï"], o: ["ó","ò","ô","õ","ö"], u: ["ú","ù","û","ü"], c: ["ç"], n: ["ñ"] }
+      m.accUp = { a: ["Á","À","Â","Ã","Ä"], e: ["É","È","Ê","Ë"], i: ["Í","Ì","Î","Ï"], o: ["Ó","Ò","Ô","Õ","Ö"], u: ["Ú","Ù","Û","Ü"], c: ["Ç"], n: ["Ñ"] }
+      buildKeys()
+      refreshText()
+    end sub
+
+    function LayoutRows() as Object
+      if m.page = "sym"
+        return ["1 2 3 4 5 6 7 8 9 0", "@ # $ % & * ( ) ! ?", "- _ + = / : ; " + Chr(34) + " ' ,", "{abc}:1.5 . ~ ^ | \ [ ] {del}:1.5", "{abc}:1.5 {space}:5 . {ok}:2.5"]
+      end if
+      return ["1 2 3 4 5 6 7 8 9 0", "q w e r t y u i o p", "a s d f g h j k l ç", "{shift}:1.5 z x c v b n m {del}:1.5", "{sym}:1.5 {space}:5 . {ok}:2.5"]
+    end function
+
+    function UpperChar(k as String) as String
+      if k = "ç" then return "Ç"
+      return UCase(k)
+    end function
+
+    function KeyDisplay(k as String) as String
+      if k = "{shift}" then return "Aa"
+      if k = "{del}" then return "APAGAR"
+      if k = "{sym}" then return "?123"
+      if k = "{abc}" then return "ABC"
+      if k = "{space}" then return "ESPAÇO"
+      if k = "{ok}" then return m.top.okLabel
+      if m.shift and m.page = "abc" then return UpperChar(k)
+      return k
+    end function
+
+    sub buildKeys()
+      m.keysGrp.removeChildrenIndex(m.keysGrp.getChildCount(), 0)
+      m.keys = []
+      rows = LayoutRows()
+      y = 0
+      for ri = 0 to rows.Count() - 1
+        toks = rows[ri].Split(" ")
+        row = []
+        x = 0.0
+        for each tk in toks
+          k = tk
+          w = 1.0
+          if Left(tk, 1) = "{"
+            p = tk.Split(":")
+            k = p[0]
+            w = Val(p[1])
+          end if
+          bw = w * 84 - 8
+          r = CreateObject("roSGNode", "Rectangle")
+          r.translation = [x, y]
+          r.width = bw
+          r.height = 76
+          l = CreateObject("roSGNode", "Label")
+          l.translation = [x, y]
+          l.width = bw
+          l.height = 76
+          l.horizAlign = "center"
+          l.vertAlign = "center"
+          if Left(k, 1) = "{"
+            l.font = "font:SmallSystemFont"
+          else
+            l.font = "font:MediumSystemFont"
+          end if
+          m.keysGrp.appendChild(r)
+          m.keysGrp.appendChild(l)
+          row.Push({ k: k, x: x, w: bw, rect: r, lbl: l })
+          x = x + w * 84
+        end for
+        m.keys.Push(row)
+        y = y + 84
+      end for
+      if m.fr > m.keys.Count() - 1 then m.fr = m.keys.Count() - 1
+      if m.fc > m.keys[m.fr].Count() - 1 then m.fc = m.keys[m.fr].Count() - 1
+      refreshLabels()
+    end sub
+
+    sub refreshLabels()
+      if m.keys = invalid then return
+      for ri = 0 to m.keys.Count() - 1
+        for ci = 0 to m.keys[ri].Count() - 1
+          kk = m.keys[ri][ci]
+          kk.lbl.text = KeyDisplay(kk.k)
+          kk.lbl.color = "0xFFFFFFFF"
+        end for
+      end for
+      hlFocus()
+    end sub
+
+    sub hlFocus()
+      for ri = 0 to m.keys.Count() - 1
+        for ci = 0 to m.keys[ri].Count() - 1
+          kk = m.keys[ri][ci]
+          c = "0x2B2B2BEE"
+          if Left(kk.k, 1) = "{" then c = "0x474747EE"
+          if kk.k = "{shift}" and m.shift then c = "0xB71C1CFF"
+          if ri = m.fr and ci = m.fc then c = "0xE5231FFF"
+          kk.rect.color = c
+        end for
+      end for
+    end sub
+
+    sub onTextSet()
+      if m.top.text <> m.text
+        m.text = m.top.text
+        refreshText()
+      end if
+    end sub
+
+    sub refreshText()
+      if m.txt = invalid then return
+      if m.text = ""
+        m.txt.text = m.top.hint
+        m.txt.color = "0xFFFFFF88"
+      else
+        t = m.text
+        if m.top.secret then t = String(Len(m.text), "*")
+        m.txt.text = t + "|"
+        m.txt.color = "0xFFFFFFFF"
+      end if
+    end sub
+
+    sub typeChar(ch as String)
+      m.text = m.text + ch
+      m.top.text = m.text
+      refreshText()
+    end sub
+
+    sub backspace()
+      if Len(m.text) > 0
+        m.text = Left(m.text, Len(m.text) - 1)
+        m.top.text = m.text
+        refreshText()
+      end if
+    end sub
+
+    function AccentsFor(k as String) as Object
+      if m.page <> "abc" then return []
+      if not m.acc.DoesExist(k) then return []
+      if m.shift then return m.accUp[k]
+      return m.acc[k]
+    end function
+
+    sub pressKey(k as String)
+      if k = "{shift}"
+        m.shift = not m.shift
+        refreshLabels()
+      else if k = "{sym}"
+        m.page = "sym"
+        buildKeys()
+      else if k = "{abc}"
+        m.page = "abc"
+        buildKeys()
+      else if k = "{del}"
+        backspace()
+      else if k = "{space}"
+        typeChar(" ")
+      else if k = "{ok}"
+        m.top.submit = true
+      else
+        ch = k
+        if m.shift and m.page = "abc" then ch = UpperChar(k)
+        typeChar(ch)
+        if m.shift
+          m.shift = false
+          refreshLabels()
+        end if
+      end if
+    end sub
+
+    sub onHold()
+      if not m.okDown then return
+      m.okDown = false
+      k = m.keys[m.fr][m.fc].k
+      opts = AccentsFor(k)
+      if opts.Count() > 0 then openPopup(opts)
+    end sub
+
+    sub openPopup(opts as Object)
+      m.pop.removeChildrenIndex(m.pop.getChildCount(), 0)
+      kk = m.keys[m.fr][m.fc]
+      w = opts.Count() * 84 + 12
+      px = kk.x
+      if px + w > 836 then px = 836 - w
+      m.pop.translation = [px, 104 + m.fr * 84 - 100]
+      bg = CreateObject("roSGNode", "Rectangle")
+      bg.width = w
+      bg.height = 92
+      bg.color = "0x000000F5"
+      m.pop.appendChild(bg)
+      m.popRects = []
+      for i = 0 to opts.Count() - 1
+        r = CreateObject("roSGNode", "Rectangle")
+        r.translation = [6 + i * 84, 8]
+        r.width = 76
+        r.height = 76
+        l = CreateObject("roSGNode", "Label")
+        l.translation = [6 + i * 84, 8]
+        l.width = 76
+        l.height = 76
+        l.horizAlign = "center"
+        l.vertAlign = "center"
+        l.font = "font:MediumSystemFont"
+        l.text = opts[i]
+        m.pop.appendChild(r)
+        m.pop.appendChild(l)
+        m.popRects.Push(r)
+      end for
+      m.popOpts = opts
+      m.ai = 0
+      m.popOpen = true
+      m.pop.visible = true
+      hlPop()
+    end sub
+
+    sub hlPop()
+      for i = 0 to m.popRects.Count() - 1
+        if i = m.ai
+          m.popRects[i].color = "0xE5231FFF"
+        else
+          m.popRects[i].color = "0x2B2B2BFF"
+        end if
+      end for
+    end sub
+
+    sub closePopup()
+      m.pop.visible = false
+      m.popOpen = false
+    end sub
+
+    sub moveRow(dr as Integer)
+      cur = m.keys[m.fr][m.fc]
+      cx = cur.x + cur.w / 2
+      nr = m.fr + dr
+      best = 0
+      bd = 99999
+      for i = 0 to m.keys[nr].Count() - 1
+        kk = m.keys[nr][i]
+        d = Abs(kk.x + kk.w / 2 - cx)
+        if d < bd
+          bd = d
+          best = i
+        end if
+      end for
+      m.fr = nr
+      m.fc = best
+      hlFocus()
+    end sub
+
+    function onKeyEvent(key as String, press as Boolean) as Boolean
+      if m.popOpen
+        if key = "OK"
+          if press
+            ch = m.popOpts[m.ai]
+            closePopup()
+            typeChar(ch)
+            if m.shift
+              m.shift = false
+              refreshLabels()
+            end if
+          end if
+          return true
+        end if
+        if press
+          if key = "left" and m.ai > 0
+            m.ai = m.ai - 1
+            hlPop()
+          else if key = "right" and m.ai < m.popOpts.Count() - 1
+            m.ai = m.ai + 1
+            hlPop()
+          else if key = "back" or key = "up" or key = "down"
+            closePopup()
+          end if
+        end if
+        return true
+      end if
+
+      if key = "OK"
+        k = m.keys[m.fr][m.fc].k
+        if press
+          if m.okDown then return true
+          if AccentsFor(k).Count() > 0
+            m.okDown = true
+            m.timer.control = "stop"
+            m.timer.control = "start"
+          else
+            pressKey(k)
+          end if
+        else
+          if m.okDown
+            m.okDown = false
+            m.timer.control = "stop"
+            pressKey(k)
+          end if
+        end if
+        return true
+      end if
+
+      if not press then return false
+      if key = "left"
+        if m.fc > 0
+          m.fc = m.fc - 1
+          hlFocus()
+          return true
+        end if
+        return false
+      else if key = "right"
+        if m.fc < m.keys[m.fr].Count() - 1
+          m.fc = m.fc + 1
+          hlFocus()
+          return true
+        end if
+        return false
+      else if key = "up"
+        if m.fr > 0
+          moveRow(-1)
+          return true
+        end if
+        return false
+      else if key = "down"
+        if m.fr < m.keys.Count() - 1
+          moveRow(1)
+          return true
+        end if
+        return false
+      else if key = "rewind"
+        backspace()
+        return true
+      else if key = "fastforward"
+        typeChar(" ")
+        return true
+      end if
+      return false
+    end function
+  ]]></script>
+</component>
