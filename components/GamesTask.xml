@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="GamesTask" extends="Task">
+  <interface>
+    <field id="games" type="array" />
+    <field id="status" type="string" />
+    <field id="done" type="boolean" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript"><![CDATA[
+    sub init()
+      m.functionName = "run"
+    end sub
+
+    function IsGame(n as String) as Boolean
+      keys = [" x ", " vs ", " vs. ", " v ", "ao vivo", "libertadores", "champions", "brasileir", "campeonato", "copa ", "rodada", "ufc", "nba", "nfl", "final"]
+      for each k in keys
+        if Instr(1, n, k) > 0 then return true
+      end for
+      return false
+    end function
+
+    sub Publish(found as Object, checked as Integer, total as Integer)
+      found.SortBy("ts")
+      out = []
+      for each g in found
+        ln = ClockStr(g.ts) + "   " + g.title + "     " + g.chan
+        if g.alts > 0 then ln = ln + "   (+" + g.alts.ToStr() + " canais)"
+        out.Push({ id: g.id, line: ln })
+      end for
+      m.top.games = out
+      m.top.status = "Verificando canais... " + checked.ToStr() + "/" + total.ToStr()
+    end sub
+
+    sub run()
+      dt = CreateObject("roDateTime")
+      nowSec = dt.AsSeconds()
+      dt.ToLocalTime()
+      since = dt.GetHours() * 3600 + dt.GetMinutes() * 60 + dt.GetSeconds()
+      dayStart = nowSec - since
+      dayEnd = dayStart + 86400
+
+      m.top.status = "Procurando canais de esportes..."
+      cats = HttpGet(Api("get_live_categories"))
+      if type(cats) <> "roArray"
+        m.top.status = "Não foi possível carregar os canais."
+        m.top.done = true
+        return
+      end if
+
+      words = ["esporte", "sport", "futebol", "premiere", "dazn", "espn", "jogos", "combate", "libertadores", "copa", "champions", "nba", "nfl", "ufc", "tnt", "paulista", "brasileir", "campeona", "ppv"]
+      chans = []
+      nc = 0
+      for each c in cats
+        if nc < 12 and chans.Count() < 160
+          nm = Norm(Sx(c.category_name))
+          hit = false
+          for each w in words
+            if Instr(1, nm, w) > 0 then hit = true
+          end for
+          if hit
+            nc = nc + 1
+            lst = HttpGet(Api("get_live_streams", "&category_id=" + Sx(c.category_id)))
+            if type(lst) = "roArray"
+              for each ch in lst
+                if chans.Count() < 160 then chans.Push({ id: Sx(ch.stream_id), name: Sx(ch.name) })
+              end for
+            end if
+          end if
+        end if
+      end for
+
+      total = chans.Count()
+      if total = 0
+        m.top.status = "Nenhum canal de esportes encontrado."
+        m.top.done = true
+        return
+      end if
+
+      port = CreateObject("roMessagePort")
+      xfers = {}
+      seen = {}
+      found = []
+      idx = 0
+      active = 0
+      checked = 0
+      while idx < total or active > 0
+        while active < 6 and idx < total
+          ch = chans[idx]
+          idx = idx + 1
+          x = CreateObject("roUrlTransfer")
+          x.SetPort(port)
+          x.SetUrl(Api("get_short_epg", "&stream_id=" + ch.id + "&limit=6"))
+          x.SetCertificatesFile("common:/certs/ca-bundle.crt")
+          x.InitClientCertificates()
+          if x.AsyncGetToString()
+            xfers[x.GetIdentity().ToStr()] = { x: x, ch: ch }
+            active = active + 1
+          end if
+        end while
+        msg = wait(15000, port)
+        if type(msg) <> "roUrlEvent" then exit while
+        if msg.GetInt() = 1
+          id = msg.GetSourceIdentity().ToStr()
+          rec = xfers[id]
+          xfers.Delete(id)
+          active = active - 1
+          checked = checked + 1
+          if rec <> invalid and msg.GetResponseCode() = 200
+            d = ParseJson(msg.GetString())
+            if type(d) = "roAssociativeArray"
+              ls = d.epg_listings
+              if type(ls) = "roArray"
+                for each e in ls
+                  if type(e) = "roAssociativeArray"
+                    ts = Int(Val(Sx(e.start_timestamp)))
+                    te = Int(Val(Sx(e.stop_timestamp)))
+                    if ts < dayEnd and te > nowSec - 7200
+                      t = B64(Sx(e.title))
+                      nt = Norm(t)
+                      if IsGame(nt)
+                        dk = nt + ts.ToStr()
+                        if seen.DoesExist(dk)
+                          seen[dk].alts = seen[dk].alts + 1
+                        else
+                          g = { id: rec.ch.id, ts: ts, title: t, chan: rec.ch.name, alts: 0 }
+                          seen[dk] = g
+                          found.Push(g)
+                        end if
+                      end if
+                    end if
+                  end if
+                end for
+              end if
+            end if
+          end if
+          if checked mod 5 = 0 then Publish(found, checked, total)
+        end if
+      end while
+      Publish(found, checked, total)
+      m.top.status = ""
+      m.top.done = true
+    end sub
+  ]]></script>
+</component>
