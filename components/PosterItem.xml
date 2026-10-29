@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="PosterItem" extends="Group">
+  <interface>
+    <field id="itemContent" type="node" onChange="onContent" />
+    <field id="itemHasFocus" type="boolean" onChange="onFocus" />
+  </interface>
+  <children>
+    <Rectangle id="frame" width="220" height="364" color="0xE5231F00" />
+    <Rectangle id="ph" translation="[10,10]" width="200" height="300" color="0x00000099" />
+    <Poster id="poster" translation="[10,10]" width="200" height="300" loadWidth="200" loadHeight="300" loadDisplayMode="scaleToFit" />
+    <Rectangle id="pbarBg" translation="[10,304]" width="200" height="6" color="0x000000CC" visible="false" />
+    <Rectangle id="pbar" translation="[10,304]" width="0" height="6" color="0xE5231FFF" visible="false" />
+    <Label id="title" translation="[10,314]" width="200" height="48" wrap="true" maxLines="2" font="font:SmallestSystemFont" color="0xFFFFFFFF" />
+  </children>
+  <script type="text/brightscript"><![CDATA[
+    sub init()
+      m.frame = m.top.findNode("frame")
+      m.poster = m.top.findNode("poster")
+      m.title = m.top.findNode("title")
+      m.pbar = m.top.findNode("pbar")
+      m.pbarBg = m.top.findNode("pbarBg")
+    end sub
+
+    sub onContent()
+      c = m.top.itemContent
+      if c = invalid then return
+      m.title.text = c.title
+      m.poster.uri = c.hdposterurl
+      if c.dur > 0 and c.pos > 0
+        w = 200 * c.pos / c.dur
+        if w > 200 then w = 200
+        m.pbar.width = w
+        m.pbar.visible = true
+        m.pbarBg.visible = true
+      else
+        m.pbar.visible = false
+        m.pbarBg.visible = false
+      end if
+    end sub
+
+    sub onFocus()
+      if m.top.itemHasFocus
+        m.frame.color = "0xFF3B30FF"
+      else
+        m.frame.color = "0xE5231F00"
+      end if
+    end sub
+  ]]></script>
+</component>
