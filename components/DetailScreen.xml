@@ -1,0 +1,333 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="DetailScreen" extends="Group">
+  <interface>
+    <field id="info" type="assocarray" onChange="onInfo" />
+    <field id="play" type="assocarray" alwaysNotify="true" />
+    <function name="refocus" />
+  </interface>
+  <children>
+    <Poster id="cover" translation="[80,110]" width="440" height="660" loadWidth="440" loadHeight="660" loadDisplayMode="scaleToFit" />
+    <Label id="title" translation="[580,100]" width="1260" height="110" wrap="true" maxLines="2" font="font:LargeBoldSystemFont" color="0xFFFFFFFF" />
+    <Label id="meta" translation="[580,215]" width="1260" height="40" font="font:SmallSystemFont" color="0xFFFFFFCC" />
+    <Label id="plot" translation="[580,270]" width="1260" height="220" wrap="true" maxLines="6" lineSpacing="6" font="font:SmallSystemFont" color="0xFFFFFFFF" />
+    <LabelList id="actions" translation="[580,520]" itemSize="[560,64]" numRows="3" focusBitmapUri="pkg:/images/focus.png" focusFootprintBitmapUri="pkg:/images/foot.png" color="0xFFFFFFFF" focusedColor="0xFFFFFFFF" />
+    <LabelList id="episodes" translation="[1180,520]" itemSize="[680,56]" numRows="9" visible="false" focusBitmapUri="pkg:/images/focus.png" focusFootprintBitmapUri="pkg:/images/foot.png" color="0xFFFFFFFF" focusedColor="0xFFFFFFFF" />
+    <Label id="msg" translation="[580,720]" width="560" height="80" wrap="true" font="font:SmallSystemFont" color="0xFFFFFFFF" />
+    <Group id="seasonBox" visible="false">
+      <Rectangle width="1920" height="1080" color="0x000000DD" />
+      <Label text="ESCOLHA A TEMPORADA" translation="[0,120]" width="1920" height="60" horizAlign="center" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
+      <LabelList id="seasons" translation="[760,200]" itemSize="[400,60]" numRows="11" focusBitmapUri="pkg:/images/focus.png" focusFootprintBitmapUri="pkg:/images/foot.png" color="0xFFFFFFFF" focusedColor="0xFFFFFFFF" />
+    </Group>
+  </children>
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript"><![CDATA[
+    sub init()
+      m.cover = m.top.findNode("cover")
+      m.title = m.top.findNode("title")
+      m.meta = m.top.findNode("meta")
+      m.plot = m.top.findNode("plot")
+      m.actions = m.top.findNode("actions")
+      m.episodes = m.top.findNode("episodes")
+      m.msg = m.top.findNode("msg")
+      m.seasonBox = m.top.findNode("seasonBox")
+      m.seasons = m.top.findNode("seasons")
+      m.actions.observeField("itemSelected", "onAction")
+      m.episodes.observeField("itemSelected", "onEpisode")
+      m.seasons.observeField("itemSelected", "onSeasonPick")
+      m.zone = "actions"
+      m.epData = {}
+      m.seasonNums = []
+      m.season = 0
+      m.hasEps = false
+      m.target = invalid
+      m.resumePos = 0
+      m.info = invalid
+    end sub
+
+    sub refocus()
+      if m.info <> invalid then buildActions()
+      if m.zone = "episodes"
+        m.episodes.setFocus(true)
+      else if m.zone = "season"
+        m.seasons.setFocus(true)
+      else
+        m.actions.setFocus(true)
+      end if
+    end sub
+
+    sub onInfo()
+      i = m.top.info
+      m.info = i
+      m.cover.uri = i.cover
+      m.title.text = i.title
+      m.plot.text = i.plot
+      m.meta.text = ""
+      if i.rating <> "" and i.rating <> "0" then m.meta.text = "Nota " + i.rating
+      if i.kind = "movie"
+        Fetch(Api("get_vod_info", "&vod_id=" + i.sid), "vod", "onVod")
+      else
+        m.msg.text = "Carregando episódios..."
+        Fetch(Api("get_series_info", "&series_id=" + i.sid), "ser", "onSeries")
+      end if
+      buildActions()
+    end sub
+
+    sub applyInfo(inf as Object)
+      p = Sx(inf.plot)
+      if p = "" then p = Sx(inf.description)
+      if p <> "" then m.plot.text = p
+      parts = []
+      r = Sx(inf.rating)
+      if r <> "" and r <> "0" then parts.Push("Nota " + r)
+      y = Sx(inf.releasedate)
+      if Len(y) >= 4 then parts.Push(Left(y, 4))
+      du = Sx(inf.duration)
+      if du <> "" then parts.Push(du)
+      g = Sx(inf.genre)
+      if g <> "" then parts.Push(g)
+      if parts.Count() > 0 then m.meta.text = JoinStr(parts, "   |   ")
+      img = Sx(inf.movie_image)
+      if img = "" then img = Sx(inf.cover)
+      if img <> "" then m.cover.uri = img
+    end sub
+
+    sub onVod(event as Object)
+      res = event.getData()
+      if not res.ok then return
+      d = res.data
+      if type(d) <> "roAssociativeArray" then return
+      if type(d.info) = "roAssociativeArray" then applyInfo(d.info)
+      if type(d.movie_data) = "roAssociativeArray"
+        e = Sx(d.movie_data.container_extension)
+        if e <> "" then m.info.ext = e
+      end if
+    end sub
+
+    sub onSeries(event as Object)
+      res = event.getData()
+      m.msg.text = ""
+      if not res.ok
+        m.msg.text = "Não foi possível carregar os episódios."
+        return
+      end if
+      d = res.data
+      if type(d) <> "roAssociativeArray" then return
+      if type(d.info) = "roAssociativeArray" then applyInfo(d.info)
+      m.epData = {}
+      m.seasonNums = []
+      eps = d.episodes
+      if type(eps) = "roAssociativeArray"
+        for each k in eps
+          lst = eps[k]
+          if type(lst) = "roArray"
+            if lst.Count() > 0
+              m.epData[k] = lst
+              m.seasonNums.Push(Int(Val(k)))
+            end if
+          end if
+        end for
+      end if
+      m.seasonNums.Sort()
+      if m.seasonNums.Count() = 0
+        m.msg.text = "Esta série não tem episódios disponíveis."
+        return
+      end if
+      m.season = m.seasonNums[0]
+      sp = FindSeriesProgress(m.info.sid)
+      if sp <> invalid
+        for each sn in m.seasonNums
+          if sn = sp.season then m.season = sn
+        end for
+      end if
+      m.hasEps = true
+      fillEpisodes()
+      buildActions()
+    end sub
+
+    sub fillEpisodes()
+      lst = m.epData[m.season.ToStr()]
+      arr = []
+      if lst <> invalid
+        n = lst.Count()
+        if n > 300 then n = 300
+        for i = 0 to n - 1
+          e = lst[i]
+          if type(e) = "roAssociativeArray"
+            cv = ""
+            if type(e.info) = "roAssociativeArray" then cv = Sx(e.info.movie_image)
+            num = Sx(e.episode_num)
+            if num = "" then num = (i + 1).ToStr()
+            arr.Push({ title: "E" + num + "   " + Sx(e.title), eptitle: Sx(e.title), epid: Sx(e.id), ext: Sx(e.container_extension), epnum: i + 1, cover: cv })
+          end if
+        end for
+      end if
+      m.episodes.content = BuildNode(arr)
+      m.episodes.visible = true
+    end sub
+
+    function GetEp(season as Integer, epnum as Integer) as Dynamic
+      lst = m.epData[season.ToStr()]
+      if lst = invalid then return invalid
+      if epnum < 1 or epnum > lst.Count() then return invalid
+      e = lst[epnum - 1]
+      cv = ""
+      if type(e.info) = "roAssociativeArray" then cv = Sx(e.info.movie_image)
+      return { season: season, epnum: epnum, epid: Sx(e.id), ext: Sx(e.container_extension), title: Sx(e.title), cover: cv, pos: 0 }
+    end function
+
+    function NextEp(season as Integer, epnum as Integer) as Dynamic
+      lst = m.epData[season.ToStr()]
+      if lst <> invalid
+        if epnum < lst.Count() then return GetEp(season, epnum + 1)
+      end if
+      for each sn in m.seasonNums
+        if sn > season then return GetEp(sn, 1)
+      end for
+      return invalid
+    end function
+
+    function SeriesPrimary() as String
+      m.target = invalid
+      sp = FindSeriesProgress(m.info.sid)
+      if sp <> invalid
+        if sp.done = true
+          nx = NextEp(sp.season, sp.epnum)
+          if nx <> invalid
+            m.target = nx
+            return "PRÓXIMO EPISÓDIO  T" + nx.season.ToStr() + " E" + nx.epnum.ToStr()
+          end if
+        else
+          ep = GetEp(sp.season, sp.epnum)
+          if ep <> invalid
+            ep.pos = sp.pos
+            m.target = ep
+            return "CONTINUAR  T" + ep.season.ToStr() + " E" + ep.epnum.ToStr() + "  " + FmtTime(sp.pos)
+          end if
+        end if
+      end if
+      ep = GetEp(m.seasonNums[0], 1)
+      m.target = ep
+      return "ASSISTIR  T" + m.seasonNums[0].ToStr() + " E1"
+    end function
+
+    sub buildActions()
+      i = m.info
+      items = []
+      prim = "ASSISTIR"
+      m.resumePos = 0
+      if i.kind = "movie"
+        p = LoadProgress()
+        k = "m" + i.sid
+        if p.DoesExist(k)
+          if p[k].pos > 10
+            m.resumePos = p[k].pos
+            prim = "CONTINUAR DE " + FmtTime(p[k].pos)
+          end if
+        end if
+      else
+        if m.seasonNums.Count() = 0
+          prim = "CARREGANDO..."
+        else
+          prim = SeriesPrimary()
+        end if
+      end if
+      items.Push({ title: prim })
+      if i.kind = "series" and m.seasonNums.Count() > 1
+        items.Push({ title: "TEMPORADA: " + m.season.ToStr() })
+      end if
+      m.actions.content = BuildNode(items)
+    end sub
+
+    sub playEp(ep as Object)
+      info = MakeInfo("ep", ep.epid, m.info.title + " - " + ep.title, ep.cover, ep.ext)
+      info.series = m.info.sid
+      info.season = ep.season
+      info.epnum = ep.epnum
+      info.key = "e" + ep.epid
+      info.pos = ep.pos
+      p = LoadProgress()
+      if p.DoesExist(info.key)
+        if p[info.key].done <> true then info.pos = p[info.key].pos
+      end if
+      m.top.play = info
+    end sub
+
+    sub onAction()
+      idx = m.actions.itemSelected
+      i = m.info
+      if idx = 0
+        if i.kind = "movie"
+          info = MakeInfo("movie", i.sid, i.title, i.cover, i.ext)
+          info.key = "m" + i.sid
+          info.pos = m.resumePos
+          m.top.play = info
+        else if m.target <> invalid
+          playEp(m.target)
+        end if
+      else
+        openSeasons()
+      end if
+    end sub
+
+    sub onEpisode()
+      c = m.episodes.content
+      if c = invalid then return
+      n = c.getChild(m.episodes.itemSelected)
+      if n = invalid then return
+      playEp({ season: m.season, epnum: n.epnum, epid: n.epid, ext: n.ext, title: n.eptitle, cover: n.cover, pos: 0 })
+    end sub
+
+    sub openSeasons()
+      arr = []
+      for each sn in m.seasonNums
+        arr.Push({ title: "Temporada " + sn.ToStr() })
+      end for
+      m.seasons.content = BuildNode(arr)
+      m.seasonBox.visible = true
+      m.zone = "season"
+      m.seasons.setFocus(true)
+    end sub
+
+    sub closeSeasons()
+      m.seasonBox.visible = false
+      m.zone = "actions"
+      m.actions.setFocus(true)
+    end sub
+
+    sub onSeasonPick()
+      idx = m.seasons.itemSelected
+      if idx >= 0 and idx < m.seasonNums.Count()
+        m.season = m.seasonNums[idx]
+        fillEpisodes()
+        buildActions()
+        m.actions.jumpToItem = 1
+      end if
+      closeSeasons()
+    end sub
+
+    function onKeyEvent(key as String, press as Boolean) as Boolean
+      if not press then return false
+      if m.zone = "season"
+        if key = "back"
+          closeSeasons()
+          return true
+        end if
+        return false
+      end if
+      if m.zone = "actions"
+        if key = "right" and m.hasEps
+          m.zone = "episodes"
+          m.episodes.setFocus(true)
+          return true
+        end if
+      else if m.zone = "episodes"
+        if key = "left" or key = "back"
+          m.zone = "actions"
+          m.actions.setFocus(true)
+          return true
+        end if
+      end if
+      return false
+    end function
+  ]]></script>
+</component>

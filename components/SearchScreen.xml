@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="SearchScreen" extends="Group">
+  <interface>
+    <field id="kind" type="string" />
+    <field id="items" type="array" onChange="onItems" />
+    <field id="picked" type="assocarray" alwaysNotify="true" />
+    <function name="refocus" />
+  </interface>
+  <children>
+    <Label text="BUSCAR" translation="[60,36]" width="500" height="64" font="font:LargeBoldSystemFont" color="0xFFFFFFFF" />
+    <OskKeyboard id="kb" translation="[60,150]" okLabel="VER" hint="Digite para buscar" />
+    <Label id="count" translation="[950,110]" width="900" height="40" font="font:SmallestSystemFont" color="0xFFFFFFCC" />
+    <MarkupGrid id="grid" translation="[950,160]" itemComponent="PosterItem" itemSize="[220,370]" itemSpacing="[16,12]" numColumns="4" numRows="2" focusBitmapUri="pkg:/images/blank.png" />
+  </children>
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript"><![CDATA[
+    sub init()
+      m.kb = m.top.findNode("kb")
+      m.grid = m.top.findNode("grid")
+      m.count = m.top.findNode("count")
+      m.all = []
+      m.res = 0
+      m.inGrid = false
+      m.kb.observeField("text", "onText")
+      m.kb.observeField("submit", "onSubmit")
+      m.grid.observeField("itemSelected", "onPick")
+    end sub
+
+    sub refocus()
+      if m.inGrid and m.res > 0
+        m.grid.setFocus(true)
+      else
+        m.inGrid = false
+        m.kb.setFocus(true)
+      end if
+    end sub
+
+    sub onItems()
+      m.all = m.top.items
+      for each it in m.all
+        it.nt = Norm(it.title)
+      end for
+      filterItems("")
+    end sub
+
+    sub onText()
+      filterItems(m.kb.text)
+    end sub
+
+    sub onSubmit()
+      if m.res > 0
+        m.inGrid = true
+        m.grid.setFocus(true)
+      end if
+    end sub
+
+    sub filterItems(q as String)
+      nq = Norm(q)
+      out = []
+      for each it in m.all
+        if nq = "" or Instr(1, it.nt, nq) > 0
+          out.Push(it)
+          if out.Count() >= 300 then exit for
+        end if
+      end for
+      m.res = out.Count()
+      m.grid.content = BuildNode(out)
+      m.count.text = m.res.ToStr() + " resultados"
+    end sub
+
+    sub onPick()
+      c = m.grid.content
+      if c = invalid then return
+      n = c.getChild(m.grid.itemSelected)
+      if n <> invalid then m.top.picked = ItemInfo(n)
+    end sub
+
+    function onKeyEvent(key as String, press as Boolean) as Boolean
+      if not press then return false
+      if m.grid.isInFocusChain()
+        if key = "left" or key = "back"
+          m.inGrid = false
+          m.kb.setFocus(true)
+          return true
+        end if
+      else
+        if key = "right" and m.res > 0
+          m.inGrid = true
+          m.grid.setFocus(true)
+          return true
+        end if
+      end if
+      return false
+    end function
+  ]]></script>
+</component>

@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="LoginScreen" extends="Group">
+  <interface>
+    <field id="loggedIn" type="boolean" alwaysNotify="true" />
+    <function name="refocus" />
+  </interface>
+  <children>
+    <Label id="logo" text="ASC RK" translation="[0,90]" width="1920" height="100" horizAlign="center" font="font:LargeBoldSystemFont" color="0xFFFFFFFF" />
+    <Label id="sub" text="Entre com sua conta Xtream" translation="[0,190]" width="1920" height="50" horizAlign="center" font="font:SmallSystemFont" color="0xFFFFFFCC" />
+    <Rectangle translation="[560,270]" width="800" height="540" color="0x000000AA" />
+    <Rectangle id="r0" translation="[600,300]" width="720" height="80" color="0x2B2B2BEE" />
+    <Label id="v0" translation="[620,300]" width="680" height="80" vertAlign="center" font="font:MediumSystemFont" color="0xFFFFFFFF" />
+    <Rectangle id="r1" translation="[600,400]" width="720" height="80" color="0x2B2B2BEE" />
+    <Label id="v1" translation="[620,400]" width="680" height="80" vertAlign="center" font="font:MediumSystemFont" color="0xFFFFFFFF" />
+    <Rectangle id="r2" translation="[600,500]" width="720" height="80" color="0x2B2B2BEE" />
+    <Label id="v2" translation="[620,500]" width="680" height="80" vertAlign="center" font="font:MediumSystemFont" color="0xFFFFFFFF" />
+    <Rectangle id="r3" translation="[600,620]" width="720" height="80" color="0x2B2B2BEE" />
+    <Label id="v3" text="ENTRAR" translation="[600,620]" width="720" height="80" horizAlign="center" vertAlign="center" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
+    <Label id="msg" translation="[560,725]" width="800" height="70" wrap="true" horizAlign="center" font="font:SmallestSystemFont" color="0xFFFFFFFF" />
+    <Rectangle id="dim" width="1920" height="1080" color="0x000000EE" visible="false" />
+    <OskKeyboard id="kb" translation="[540,270]" visible="false" />
+  </children>
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript"><![CDATA[
+    sub init()
+      m.hints = ["Endereço do servidor", "Usuário", "Senha"]
+      m.vals = [RegGet("server"), RegGet("user"), RegGet("pass")]
+      m.rects = [m.top.findNode("r0"), m.top.findNode("r1"), m.top.findNode("r2"), m.top.findNode("r3")]
+      m.vlabels = [m.top.findNode("v0"), m.top.findNode("v1"), m.top.findNode("v2")]
+      m.msg = m.top.findNode("msg")
+      m.kb = m.top.findNode("kb")
+      m.dim = m.top.findNode("dim")
+      m.kb.observeField("submit", "onKbSubmit")
+      m.idx = 0
+      m.editing = false
+      refreshFields()
+      if m.vals[0] <> "" and m.vals[1] <> "" and m.vals[2] <> ""
+        doLogin()
+      end if
+    end sub
+
+    sub refocus()
+      if m.editing
+        m.kb.setFocus(true)
+      else
+        m.top.setFocus(true)
+      end if
+    end sub
+
+    sub refreshFields()
+      for i = 0 to 2
+        if m.vals[i] = ""
+          m.vlabels[i].text = m.hints[i]
+          m.vlabels[i].color = "0xFFFFFF77"
+        else
+          v = m.vals[i]
+          if i = 2 then v = String(Len(v), "*")
+          m.vlabels[i].text = v
+          m.vlabels[i].color = "0xFFFFFFFF"
+        end if
+      end for
+      for i = 0 to 3
+        if i = m.idx
+          m.rects[i].color = "0xE5231FFF"
+        else
+          m.rects[i].color = "0x2B2B2BEE"
+        end if
+      end for
+    end sub
+
+    sub openKb()
+      m.kb.text = m.vals[m.idx]
+      m.kb.hint = m.hints[m.idx]
+      m.kb.secret = (m.idx = 2)
+      m.kb.okLabel = "OK"
+      m.dim.visible = true
+      m.kb.visible = true
+      m.editing = true
+      m.kb.setFocus(true)
+    end sub
+
+    sub closeKb()
+      m.kb.visible = false
+      m.dim.visible = false
+      m.editing = false
+      m.top.setFocus(true)
+      refreshFields()
+    end sub
+
+    sub onKbSubmit()
+      m.vals[m.idx] = m.kb.text
+      closeKb()
+      if m.idx < 3 then m.idx = m.idx + 1
+      refreshFields()
+    end sub
+
+    sub doLogin()
+      srv = m.vals[0].Trim()
+      usr = m.vals[1].Trim()
+      pwd = m.vals[2].Trim()
+      if srv = "" or usr = "" or pwd = ""
+        m.msg.text = "Preencha o servidor, o usuário e a senha."
+        return
+      end if
+      if Left(LCase(srv), 4) <> "http" then srv = "http://" + srv
+      while Right(srv, 1) = "/"
+        srv = Left(srv, Len(srv) - 1)
+      end while
+      m.pending = { server: srv, user: usr, pass: pwd }
+      m.global.session = m.pending
+      m.msg.text = "Entrando..."
+      Fetch(Api(""), "auth", "onAuth")
+    end sub
+
+    sub onAuth(event as Object)
+      res = event.getData()
+      ok = false
+      if res.ok
+        d = res.data
+        if type(d) = "roAssociativeArray"
+          ui = d.user_info
+          if type(ui) = "roAssociativeArray"
+            if Sx(ui.auth) = "1" then ok = true
+          end if
+        end if
+      end if
+      if ok
+        RegSet("server", m.pending.server)
+        RegSet("user", m.pending.user)
+        RegSet("pass", m.pending.pass)
+        m.top.loggedIn = true
+      else
+        m.global.session = {}
+        m.msg.text = "Não foi possível entrar. Confira os dados e a internet."
+      end if
+    end sub
+
+    function onKeyEvent(key as String, press as Boolean) as Boolean
+      if not press then return false
+      if m.editing
+        if key = "back"
+          closeKb()
+          return true
+        end if
+        return false
+      end if
+      if key = "down"
+        if m.idx < 3 then m.idx = m.idx + 1
+        refreshFields()
+        return true
+      else if key = "up"
+        if m.idx > 0 then m.idx = m.idx - 1
+        refreshFields()
+        return true
+      else if key = "OK"
+        if m.idx < 3
+          openKb()
+        else
+          doLogin()
+        end if
+        return true
+      end if
+      return false
+    end function
+  ]]></script>
+</component>

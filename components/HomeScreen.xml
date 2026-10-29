@@ -1,0 +1,520 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="HomeScreen" extends="Group">
+  <interface>
+    <field id="selected" type="assocarray" alwaysNotify="true" />
+    <field id="search" type="assocarray" alwaysNotify="true" />
+    <field id="logout" type="boolean" alwaysNotify="true" />
+    <function name="refocus" />
+  </interface>
+  <children>
+    <Label id="logo" text="ASC RK" translation="[60,36]" width="320" height="64" vertAlign="center" font="font:LargeBoldSystemFont" color="0xFFFFFFFF" />
+    <Rectangle id="tabFocus" translation="[420,36]" width="190" height="64" color="0xE5231FFF" visible="false" />
+    <Rectangle id="tabLine" translation="[420,104]" width="190" height="6" color="0xFFFFFFFF" />
+    <Group id="tabsGroup" />
+    <Rectangle id="searchBtn" translation="[420,128]" width="280" height="64" color="0xFFFFFF33" />
+    <Label id="searchLbl" text="BUSCAR" translation="[420,128]" width="280" height="64" horizAlign="center" vertAlign="center" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
+    <LabelList id="cats" translation="[60,128]" itemSize="[330,56]" numRows="15" focusBitmapUri="pkg:/images/focus.png" focusFootprintBitmapUri="pkg:/images/foot.png" color="0xFFFFFFFF" focusedColor="0xFFFFFFFF" />
+    <MarkupGrid id="grid" translation="[420,215]" itemComponent="PosterItem" itemSize="[220,370]" itemSpacing="[16,12]" numColumns="6" numRows="2" focusBitmapUri="pkg:/images/blank.png" visible="false" />
+    <MarkupList id="chList" translation="[420,215]" itemComponent="ChannelItem" itemSize="[720,92]" itemSpacing="[0,6]" numRows="8" focusBitmapUri="pkg:/images/blank.png" visible="false" />
+    <Group id="epgPanel" translation="[1170,215]" visible="false">
+      <Rectangle width="690" height="780" color="0x000000AA" />
+      <Label id="epgName" translation="[24,16]" width="642" height="50" font="font:MediumBoldSystemFont" color="0xFFFFFFFF" />
+      <Label id="epgNow" translation="[24,80]" width="642" height="120" wrap="true" maxLines="3" font="font:MediumSystemFont" color="0xFF6A5FFF" />
+      <Label id="epgDesc" translation="[24,215]" width="642" height="200" wrap="true" maxLines="6" font="font:SmallestSystemFont" color="0xFFFFFFCC" />
+      <Label id="epgNext" translation="[24,430]" width="642" height="330" wrap="true" maxLines="9" lineSpacing="8" font="font:SmallSystemFont" color="0xFFFFFFFF" />
+    </Group>
+    <LabelList id="games" translation="[420,215]" itemSize="[1440,70]" numRows="10" focusBitmapUri="pkg:/images/focus.png" focusFootprintBitmapUri="pkg:/images/foot.png" color="0xFFFFFFFF" focusedColor="0xFFFFFFFF" visible="false" />
+    <Label id="msg" translation="[420,520]" width="1440" height="80" horizAlign="center" wrap="true" font="font:MediumSystemFont" color="0xFFFFFFFF" />
+    <Timer id="catTimer" duration="0.35" repeat="false" />
+    <Timer id="epgTimer" duration="0.45" repeat="false" />
+  </children>
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript"><![CDATA[
+    sub init()
+      m.tabNames = ["AO VIVO", "FILMES", "SÉRIES", "JOGOS DE HOJE", "CONTINUAR", "SAIR"]
+      m.tabW = [190, 190, 190, 330, 250, 150]
+      m.kinds = ["live", "movie", "series"]
+      m.catActs = ["get_live_categories", "get_vod_categories", "get_series_categories"]
+      m.strActs = ["get_live_streams", "get_vod_streams", "get_series"]
+      m.tabFocus = m.top.findNode("tabFocus")
+      m.tabLine = m.top.findNode("tabLine")
+      m.searchBtn = m.top.findNode("searchBtn")
+      m.searchLbl = m.top.findNode("searchLbl")
+      m.cats = m.top.findNode("cats")
+      m.grid = m.top.findNode("grid")
+      m.chList = m.top.findNode("chList")
+      m.games = m.top.findNode("games")
+      m.epgPanel = m.top.findNode("epgPanel")
+      m.epgName = m.top.findNode("epgName")
+      m.epgNow = m.top.findNode("epgNow")
+      m.epgDesc = m.top.findNode("epgDesc")
+      m.epgNext = m.top.findNode("epgNext")
+      m.msg = m.top.findNode("msg")
+      m.catTimer = m.top.findNode("catTimer")
+      m.epgTimer = m.top.findNode("epgTimer")
+
+      grp = m.top.findNode("tabsGroup")
+      m.tabLabels = []
+      m.tabX = []
+      x = 420
+      for i = 0 to 5
+        l = CreateObject("roSGNode", "Label")
+        l.translation = [x, 36]
+        l.width = m.tabW[i]
+        l.height = 64
+        l.horizAlign = "center"
+        l.vertAlign = "center"
+        l.font = "font:MediumBoldSystemFont"
+        l.text = m.tabNames[i]
+        grp.appendChild(l)
+        m.tabLabels.Push(l)
+        m.tabX.Push(x)
+        x = x + m.tabW[i] + 10
+      end for
+
+      m.catNodes = {}
+      m.raw = {}
+      m.nodes = {}
+      m.epgCache = {}
+      m.tab = -1
+      m.tabSel = 0
+      m.zone = "tabs"
+      m.curKey = ""
+      m.pendingCat = 0
+      m.current = invalid
+      m.gamesTask = invalid
+      m.gamesNode = invalid
+
+      m.cats.observeField("itemFocused", "onCatFocused")
+      m.cats.observeField("itemSelected", "onCatSelected")
+      m.grid.observeField("itemSelected", "onGridSelected")
+      m.chList.observeField("itemSelected", "onChSelected")
+      m.chList.observeField("itemFocused", "onChFocused")
+      m.games.observeField("itemSelected", "onGameSelected")
+      m.catTimer.observeField("fire", "onCatTimer")
+      m.epgTimer.observeField("fire", "onEpgTimer")
+
+      showTab(0)
+      updateHighlights()
+    end sub
+
+    sub refocus()
+      goZone(m.zone)
+    end sub
+
+    ' ---------- abas ----------
+    sub showTab(i as Integer)
+      if i = m.tab then return
+      m.tab = i
+      m.tabLine.translation = [m.tabX[i], 104]
+      m.tabLine.width = m.tabW[i]
+      m.cats.visible = (i <= 2)
+      m.searchBtn.visible = (i <= 2)
+      m.searchLbl.visible = (i <= 2)
+      m.grid.visible = false
+      m.chList.visible = false
+      m.epgPanel.visible = false
+      m.games.visible = false
+      m.msg.text = ""
+      m.current = invalid
+      if i <= 2
+        loadCategories()
+      else if i = 3
+        showGames()
+      else if i = 4
+        showContinue()
+      end if
+    end sub
+
+    sub selTab(i as Integer)
+      m.tabSel = i
+      if i <= 4 then showTab(i)
+      updateHighlights()
+    end sub
+
+    sub updateHighlights()
+      inTabs = (m.zone = "tabs")
+      m.tabFocus.visible = inTabs
+      m.tabFocus.translation = [m.tabX[m.tabSel], 36]
+      m.tabFocus.width = m.tabW[m.tabSel]
+      for i = 0 to 5
+        if i = m.tab or (inTabs and i = m.tabSel)
+          m.tabLabels[i].color = "0xFFFFFFFF"
+        else
+          m.tabLabels[i].color = "0xFFFFFFAA"
+        end if
+      end for
+      if m.zone = "search"
+        m.searchBtn.color = "0xE5231FFF"
+      else
+        m.searchBtn.color = "0xFFFFFF33"
+      end if
+    end sub
+
+    sub goZone(z as String)
+      m.zone = z
+      if z = "cats"
+        m.cats.setFocus(true)
+      else if z = "content"
+        if m.tab = 0
+          m.chList.setFocus(true)
+        else if m.tab = 3
+          m.games.setFocus(true)
+        else
+          m.grid.setFocus(true)
+        end if
+      else
+        m.top.setFocus(true)
+      end if
+      updateHighlights()
+    end sub
+
+    ' ---------- categorias ----------
+    sub loadCategories()
+      key = m.tab.ToStr()
+      if m.catNodes.DoesExist(key)
+        m.cats.content = m.catNodes[key]
+        m.cats.jumpToItem = 0
+        loadCategory(0)
+        return
+      end if
+      m.msg.text = "Carregando categorias..."
+      Fetch(Api(m.catActs[m.tab]), "cats" + key, "onCats")
+    end sub
+
+    sub onCats(event as Object)
+      res = event.getData()
+      tab = Int(Val(Mid(event.getRoSGNode().tag, 5)))
+      if not res.ok or type(res.data) <> "roArray"
+        if tab = m.tab then m.msg.text = "Erro ao carregar. Confira sua conta e a internet."
+        return
+      end if
+      list = []
+      for each c in res.data
+        if type(c) = "roAssociativeArray"
+          list.Push({ title: Sx(c.category_name), cid: Sx(c.category_id) })
+        end if
+      end for
+      key = tab.ToStr()
+      m.catNodes[key] = BuildNode(list)
+      if tab = m.tab
+        m.msg.text = ""
+        m.cats.content = m.catNodes[key]
+        loadCategory(0)
+      end if
+    end sub
+
+    sub onCatFocused()
+      m.pendingCat = m.cats.itemFocused
+      m.catTimer.control = "stop"
+      m.catTimer.control = "start"
+    end sub
+
+    sub onCatSelected()
+      goZone("content")
+    end sub
+
+    sub onCatTimer()
+      loadCategory(m.pendingCat)
+    end sub
+
+    sub loadCategory(idx as Integer)
+      c = m.cats.content
+      if c = invalid then return
+      node = c.getChild(idx)
+      if node = invalid then return
+      key = m.tab.ToStr() + ":" + node.cid
+      m.curKey = key
+      if m.nodes.DoesExist(key)
+        showItems(key)
+        return
+      end if
+      m.grid.visible = false
+      m.chList.visible = false
+      m.epgPanel.visible = false
+      m.msg.text = "Carregando..."
+      Fetch(Api(m.strActs[m.tab], "&category_id=" + node.cid), "str" + key, "onStreams")
+    end sub
+
+    sub onStreams(event as Object)
+      res = event.getData()
+      key = Mid(event.getRoSGNode().tag, 4)
+      tab = Int(Val(key))
+      if res.ok and type(res.data) = "roArray"
+        list = BuildList(res.data, m.kinds[tab])
+        m.raw[key] = list
+        m.nodes[key] = BuildNode(list)
+        if key = m.curKey then showItems(key)
+      else
+        if key = m.curKey then m.msg.text = "Não foi possível carregar esta categoria."
+      end if
+    end sub
+
+    sub showItems(key as String)
+      m.current = m.raw[key]
+      m.msg.text = ""
+      if m.current.Count() = 0 then m.msg.text = "Nada nesta categoria."
+      if m.tab = 0
+        m.chList.content = m.nodes[key]
+        m.chList.visible = true
+        m.epgPanel.visible = true
+        m.chList.jumpToItem = 0
+        onChFocused()
+      else
+        m.grid.content = m.nodes[key]
+        m.grid.visible = true
+        m.grid.jumpToItem = 0
+      end if
+    end sub
+
+    ' ---------- selecionar ----------
+    sub onGridSelected()
+      c = m.grid.content
+      if c = invalid then return
+      n = c.getChild(m.grid.itemSelected)
+      if n <> invalid then m.top.selected = ItemInfo(n)
+    end sub
+
+    sub onChSelected()
+      c = m.chList.content
+      if c = invalid then return
+      n = c.getChild(m.chList.itemSelected)
+      if n <> invalid then m.top.selected = ItemInfo(n)
+    end sub
+
+    sub onGameSelected()
+      c = m.games.content
+      if c = invalid then return
+      n = c.getChild(m.games.itemSelected)
+      if n <> invalid then m.top.selected = ItemInfo(n)
+    end sub
+
+    sub openSearch()
+      if m.current <> invalid
+        m.top.search = { kind: m.kinds[m.tab], items: m.current }
+      end if
+    end sub
+
+    ' ---------- EPG sem abrir o canal ----------
+    sub onChFocused()
+      m.epgTimer.control = "stop"
+      m.epgTimer.control = "start"
+    end sub
+
+    sub onEpgTimer()
+      c = m.chList.content
+      if c = invalid then return
+      n = c.getChild(m.chList.itemFocused)
+      if n = invalid then return
+      m.epgName.text = n.title
+      sid = n.sid
+      m.epgSid = sid
+      if m.epgCache.DoesExist(sid)
+        showEpg(m.epgCache[sid])
+      else
+        m.epgNow.text = "Carregando programação..."
+        m.epgDesc.text = ""
+        m.epgNext.text = ""
+        Fetch(Api("get_short_epg", "&stream_id=" + sid + "&limit=6"), "epg" + sid, "onEpg")
+      end if
+    end sub
+
+    function ParseEpg(list as Object) as Object
+      now = CreateObject("roDateTime").AsSeconds()
+      out = { now: "Sem programação no momento", desc: "", nextt: "" }
+      lines = ""
+      for each e in list
+        if type(e) = "roAssociativeArray"
+          ts = Int(Val(Sx(e.start_timestamp)))
+          te = Int(Val(Sx(e.stop_timestamp)))
+          t = B64(Sx(e.title))
+          if ts <= now and te > now
+            out.now = "AGORA  " + ClockStr(ts) + " - " + ClockStr(te) + Chr(10) + t
+            out.desc = B64(Sx(e.description))
+          else if ts > now
+            lines = lines + ClockStr(ts) + "   " + t + Chr(10)
+          end if
+        end if
+      end for
+      if lines <> "" then out.nextt = "A SEGUIR" + Chr(10) + lines
+      return out
+    end function
+
+    sub onEpg(event as Object)
+      res = event.getData()
+      sid = Mid(event.getRoSGNode().tag, 4)
+      data = { now: "Sem programação disponível", desc: "", nextt: "" }
+      if res.ok
+        if type(res.data) = "roAssociativeArray"
+          if type(res.data.epg_listings) = "roArray" then data = ParseEpg(res.data.epg_listings)
+        end if
+      end if
+      m.epgCache[sid] = data
+      if sid = m.epgSid then showEpg(data)
+    end sub
+
+    sub showEpg(d as Object)
+      m.epgNow.text = d.now
+      m.epgDesc.text = d.desc
+      m.epgNext.text = d.nextt
+    end sub
+
+    ' ---------- jogos do dia ----------
+    sub showGames()
+      m.games.visible = true
+      if m.gamesNode <> invalid then m.games.content = m.gamesNode
+      if m.gamesTask <> invalid then return
+      m.msg.text = "Procurando jogos de hoje..."
+      t = CreateObject("roSGNode", "GamesTask")
+      t.observeField("games", "onGames")
+      t.observeField("status", "onGamesStatus")
+      t.observeField("done", "onGamesDone")
+      m.gamesTask = t
+      t.control = "RUN"
+    end sub
+
+    sub onGames(event as Object)
+      arr = event.getData()
+      list = []
+      for each g in arr
+        o = MakeItem("live")
+        o.sid = g.id
+        o.title = g.line
+        list.Push(o)
+      end for
+      fi = m.games.itemFocused
+      m.gamesNode = BuildNode(list)
+      m.games.content = m.gamesNode
+      if fi > 0 then m.games.jumpToItem = fi
+      if m.tab = 3 and list.Count() > 0 then m.msg.text = ""
+    end sub
+
+    sub onGamesStatus(event as Object)
+      if m.tab <> 3 then return
+      empty = true
+      if m.gamesNode <> invalid
+        if m.gamesNode.getChildCount() > 0 then empty = false
+      end if
+      if empty then m.msg.text = event.getData()
+    end sub
+
+    sub onGamesDone()
+      if m.tab <> 3 then return
+      if m.gamesNode = invalid
+        if m.msg.text = "" then m.msg.text = "Nenhum jogo encontrado hoje."
+      else if m.gamesNode.getChildCount() = 0
+        m.msg.text = "Nenhum jogo encontrado hoje nos canais de esportes."
+      end if
+    end sub
+
+    ' ---------- continuar assistindo ----------
+    sub showContinue()
+      p = LoadProgress()
+      arr = []
+      for each k in p.Keys()
+        v = p[k]
+        if type(v) = "roAssociativeArray"
+          if v.done <> true then arr.Push(v)
+        end if
+      end for
+      arr.SortBy("t", "r")
+      list = []
+      for each v in arr
+        o = MakeItem(v.k)
+        o.sid = v.id
+        o.title = v.title
+        o.hdposterurl = v.cover
+        o.ext = v.ext
+        o.pos = v.pos
+        o.dur = v.dur
+        o.key = v.key
+        o.series = v.series
+        o.season = v.season
+        o.epnum = v.epnum
+        o.direct = true
+        list.Push(o)
+      end for
+      m.grid.content = BuildNode(list)
+      m.grid.visible = true
+      if list.Count() = 0 then m.msg.text = "Você ainda não começou a assistir nada."
+    end sub
+
+    ' ---------- teclas ----------
+    function onKeyEvent(key as String, press as Boolean) as Boolean
+      if not press then return false
+      z = m.zone
+      if z = "tabs"
+        if key = "left"
+          if m.tabSel > 0 then selTab(m.tabSel - 1)
+          return true
+        else if key = "right"
+          if m.tabSel < 5 then selTab(m.tabSel + 1)
+          return true
+        else if key = "down" or key = "OK"
+          if m.tabSel = 5
+            if key = "OK" then m.top.logout = true
+            return true
+          end if
+          if m.tab <= 2
+            goZone("cats")
+          else
+            goZone("content")
+          end if
+          return true
+        end if
+      else if z = "search"
+        if key = "up"
+          goZone("tabs")
+        else if key = "down"
+          goZone("content")
+        else if key = "left"
+          goZone("cats")
+        else if key = "OK"
+          openSearch()
+        else
+          return false
+        end if
+        return true
+      else if z = "cats"
+        if key = "right"
+          goZone("content")
+        else if key = "up" or key = "back"
+          goZone("tabs")
+        else
+          return false
+        end if
+        return true
+      else if z = "content"
+        if key = "left"
+          if m.tab <= 2
+            goZone("cats")
+            return true
+          end if
+        else if key = "up"
+          if m.tab <= 2
+            goZone("search")
+          else
+            goZone("tabs")
+          end if
+          return true
+        else if key = "back"
+          if m.tab <= 2
+            goZone("cats")
+          else
+            goZone("tabs")
+          end if
+          return true
+        else if key = "options"
+          if m.tab = 3
+            m.gamesTask = invalid
+            m.gamesNode = invalid
+            m.games.content = invalid
+            showGames()
+            return true
+          end if
+        end if
+      end if
+      return false
+    end function
+  ]]></script>
+</component>

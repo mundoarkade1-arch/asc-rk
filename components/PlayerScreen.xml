@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="PlayerScreen" extends="Group">
+  <interface>
+    <field id="info" type="assocarray" onChange="onInfo" />
+    <field id="closing" type="boolean" onChange="onClosing" />
+    <field id="finished" type="boolean" alwaysNotify="true" />
+    <function name="refocus" />
+  </interface>
+  <children>
+    <Rectangle width="1920" height="1080" color="0x000000FF" />
+    <Video id="video" translation="[0,0]" width="1920" height="1080" />
+    <Label id="msg" translation="[0,480]" width="1920" height="80" horizAlign="center" font="font:MediumSystemFont" color="0xFFFFFFFF" />
+  </children>
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript"><![CDATA[
+    sub init()
+      m.video = m.top.findNode("video")
+      m.msg = m.top.findNode("msg")
+      m.video.observeField("state", "onState")
+      m.video.observeField("position", "onPos")
+      m.tick = 0
+      m.triedTs = false
+    end sub
+
+    sub refocus()
+      m.video.setFocus(true)
+    end sub
+
+    function FmtOf(ext as String) as String
+      if ext = "mkv" then return "mkv"
+      if ext = "ts" then return "ts"
+      if ext = "m3u8" then return "hls"
+      return "mp4"
+    end function
+
+    sub onInfo()
+      m.triedTs = false
+      startVideo(false)
+    end sub
+
+    sub startVideo(useTs as Boolean)
+      i = m.top.info
+      c = CreateObject("roSGNode", "ContentNode")
+      c.title = i.title
+      if i.kind = "live"
+        if useTs
+          c.url = StreamUrl("live", i.sid, "ts")
+          c.streamFormat = "ts"
+        else
+          c.url = StreamUrl("live", i.sid, "m3u8")
+          c.streamFormat = "hls"
+        end if
+        c.live = true
+      else
+        folder = "movie"
+        if i.kind = "ep" then folder = "series"
+        ext = LCase(i.ext)
+        if ext = "" then ext = "mp4"
+        c.url = StreamUrl(folder, i.sid, ext)
+        c.streamFormat = FmtOf(ext)
+        if i.pos > 10 then c.PlayStart = i.pos
+      end if
+      m.video.content = c
+      m.video.control = "play"
+      m.video.setFocus(true)
+      m.msg.text = "Carregando..."
+    end sub
+
+    sub onState()
+      s = m.video.state
+      if s = "playing"
+        m.msg.text = ""
+      else if s = "error"
+        i = m.top.info
+        if i.kind = "live" and not m.triedTs
+          m.triedTs = true
+          startVideo(true)
+          return
+        end if
+        m.msg.text = "Não foi possível reproduzir. Aperte voltar."
+      else if s = "finished"
+        saveProgress(true)
+        m.top.finished = true
+      end if
+    end sub
+
+    sub onPos()
+      i = m.top.info
+      if i = invalid then return
+      if i.kind = "live" then return
+      m.tick = m.tick + 1
+      if m.tick mod 15 = 0 then saveProgress(false)
+    end sub
+
+    sub saveProgress(done as Boolean)
+      i = m.top.info
+      if i = invalid then return
+      if i.kind = "live" then return
+      pos = Int(m.video.position)
+      dur = Int(m.video.duration)
+      if pos < 10 and not done then return
+      key = i.key
+      if key = ""
+        if i.kind = "ep"
+          key = "e" + i.sid
+        else
+          key = "m" + i.sid
+        end if
+      end if
+      finished = done
+      if dur > 0 and pos > dur * 0.95 then finished = true
+      if i.kind = "movie" and finished
+        RemoveProgress(key)
+        return
+      end if
+      now = CreateObject("roDateTime").AsSeconds()
+      item = { key: key, k: i.kind, id: i.sid, ext: i.ext, title: i.title, cover: i.cover, pos: pos, dur: dur, t: now, series: i.series, season: i.season, epnum: i.epnum, done: false }
+      if i.kind = "ep" and finished
+        item.done = true
+        item.pos = 0
+      end if
+      SaveProgressItem(item)
+    end sub
+
+    sub onClosing()
+      if m.top.closing
+        saveProgress(false)
+        m.video.control = "stop"
+      end if
+    end sub
+  ]]></script>
+</component>
