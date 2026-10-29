@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="ChannelItem" extends="Group">
+  <interface>
+    <field id="itemContent" type="node" onChange="onContent" />
+    <field id="itemHasFocus" type="boolean" onChange="onFocus" />
+  </interface>
+  <children>
+    <Rectangle id="bg" width="720" height="92" color="0x00000066" />
+    <Poster id="logo" translation="[16,10]" width="72" height="72" loadWidth="72" loadHeight="72" loadDisplayMode="scaleToFit" />
+    <Label id="name" translation="[110,0]" width="590" height="92" vertAlign="center" font="font:MediumSystemFont" color="0xFFFFFFFF" />
+  </children>
+  <script type="text/brightscript"><![CDATA[
+    sub init()
+      m.bg = m.top.findNode("bg")
+      m.logo = m.top.findNode("logo")
+      m.name = m.top.findNode("name")
+    end sub
+
+    sub onContent()
+      c = m.top.itemContent
+      if c = invalid then return
+      m.name.text = c.title
+      m.logo.uri = c.hdposterurl
+    end sub
+
+    sub onFocus()
+      if m.top.itemHasFocus
+        m.bg.color = "0xE5231FFF"
+      else
+        m.bg.color = "0x00000066"
+      end if
+    end sub
+  ]]></script>
+</component>
