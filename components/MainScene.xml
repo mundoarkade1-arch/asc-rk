@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="MainScene" extends="Scene">
+  <children>
+    <Poster id="bg" uri="pkg:/images/bg.png" width="1920" height="1080" />
+    <Group id="screens" />
+  </children>
+  <script type="text/brightscript" uri="pkg:/components/Util.brs" />
+  <script type="text/brightscript"><![CDATA[
+    sub init()
+      m.stack = []
+      m.screensGroup = m.top.findNode("screens")
+      m.global.addFields({ session: {} })
+      showLogin()
+    end sub
+
+    sub pushScreen(s as Object)
+      top = m.stack.Peek()
+      if top <> invalid then top.visible = false
+      m.screensGroup.appendChild(s)
+      m.stack.Push(s)
+      s.callFunc("refocus")
+    end sub
+
+    sub popScreen()
+      cur = m.stack.Pop()
+      if cur.hasField("closing") then cur.closing = true
+      m.screensGroup.removeChild(cur)
+      top = m.stack.Peek()
+      if top <> invalid
+        top.visible = true
+        top.callFunc("refocus")
+      end if
+    end sub
+
+    sub resetStack()
+      for each s in m.stack
+        m.screensGroup.removeChild(s)
+      end for
+      m.stack = []
+    end sub
+
+    sub showLogin()
+      s = CreateObject("roSGNode", "LoginScreen")
+      s.observeField("loggedIn", "onLoggedIn")
+      pushScreen(s)
+    end sub
+
+    sub onLoggedIn()
+      resetStack()
+      h = CreateObject("roSGNode", "HomeScreen")
+      h.observeField("selected", "onSelected")
+      h.observeField("search", "onSearch")
+      h.observeField("logout", "onLogout")
+      pushScreen(h)
+    end sub
+
+    sub onLogout()
+      RegDel("server")
+      RegDel("user")
+      RegDel("pass")
+      m.global.session = {}
+      resetStack()
+      showLogin()
+    end sub
+
+    sub onSelected(event as Object)
+      info = event.getData()
+      if info.kind = "live" or info.kind = "ep" or info.direct = true
+        startPlay(info)
+      else
+        d = CreateObject("roSGNode", "DetailScreen")
+        d.observeField("play", "onPlay")
+        d.info = info
+        pushScreen(d)
+      end if
+    end sub
+
+    sub onPlay(event as Object)
+      startPlay(event.getData())
+    end sub
+
+    sub startPlay(info as Object)
+      p = CreateObject("roSGNode", "PlayerScreen")
+      p.observeField("finished", "onPlayerEnded")
+      pushScreen(p)
+      p.info = info
+    end sub
+
+    sub onPlayerEnded()
+      if m.stack.Count() > 1 then popScreen()
+    end sub
+
+    sub onSearch(event as Object)
+      data = event.getData()
+      s = CreateObject("roSGNode", "SearchScreen")
+      s.observeField("picked", "onSelected")
+      s.kind = data.kind
+      s.items = data.items
+      pushScreen(s)
+    end sub
+
+    function onKeyEvent(key as String, press as Boolean) as Boolean
+      if press and key = "back" and m.stack.Count() > 1
+        popScreen()
+        return true
+      end if
+      return false
+    end function
+  ]]></script>
+</component>
