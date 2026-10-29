@@ -1,0 +1,16 @@
+name: Gerar pacote ASC RK
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Criar zip da Roku
+        run: zip -r asc-rk.zip manifest source components images
+      - uses: actions/upload-artifact@v4
+        with:
+          name: asc-rk
+          path: asc-rk.zip
